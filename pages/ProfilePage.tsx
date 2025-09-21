@@ -5,6 +5,7 @@ import { Role, User } from '../types';
 import { UserCircleIcon, KeyIcon, PencilIcon, UsersIcon, BellAlertIcon, StarIcon } from '../components/icons/Icons';
 import { Link } from 'react-router-dom';
 import ChildProfileModal from '../components/ChildProfileModal';
+import { uploadFile } from '../api/utils';
 
 const countryCodes = [
     { name: 'USA', code: '+1' },
@@ -33,6 +34,7 @@ const ProfilePage: React.FC = () => {
     const [isEditing, setIsEditing] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [newAvatar, setNewAvatar] = useState<string | null>(null);
+    const [isUploading, setIsUploading] = useState(false);
 
     // Parent-specific state
     const [isChildModalOpen, setIsChildModalOpen] = useState(false);
@@ -63,7 +65,6 @@ const ProfilePage: React.FC = () => {
     
     const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
     
-    // FIX: Use state and effect to handle async fetching of children
     const [children, setChildren] = useState<User[]>([]);
 
     useEffect(() => {
@@ -85,14 +86,24 @@ const ProfilePage: React.FC = () => {
         setPasswordData({ ...passwordData, [e.target.name]: e.target.value });
     };
 
-    const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file && file.type.startsWith('image/')) {
-            const reader = new FileReader();
-            reader.onloadend = () => { setNewAvatar(reader.result as string); setIsEditing(true); };
-            reader.readAsDataURL(file);
-        } else {
-            addToast('Please select a valid image file.', 'error');
+        if (file) {
+            if (file.size > 5 * 1024 * 1024) { // 5MB limit
+                addToast('File size should not exceed 5MB.', 'error');
+                return;
+            }
+            setIsUploading(true);
+            try {
+                const { filePath } = await uploadFile(file);
+                setNewAvatar(filePath);
+                setIsEditing(true);
+                addToast('Avatar updated. Click "Save Changes" to confirm.', 'info');
+            } catch (error: any) {
+                addToast(error.message || 'Failed to upload avatar.', 'error');
+            } finally {
+                setIsUploading(false);
+            }
         }
     };
 
@@ -147,6 +158,8 @@ const ProfilePage: React.FC = () => {
     };
 
     if (!user) return null;
+    
+    const avatarSrc = newAvatar || user.avatar;
 
     const TabButton: React.FC<{ tab: 'profile' | 'security' | 'notifications'; label: string; icon: React.ElementType }> = ({ tab, label, icon: Icon }) => (
         <button onClick={() => setActiveTab(tab)} className={`flex items-center px-4 py-2 text-sm font-medium rounded-md ${activeTab === tab ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/50 dark:text-primary-300' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}>
@@ -164,9 +177,10 @@ const ProfilePage: React.FC = () => {
             <div className={`max-w-4xl mx-auto space-y-8 ${user.role === Role.STUDENT ? 'font-student' : ''}`}>
                  <div className="flex items-center space-x-4">
                     <div className="relative">
-                        <img className="h-24 w-24 rounded-full object-cover" src={newAvatar || user.avatar} alt="Profile" />
-                        <input type="file" ref={fileInputRef} onChange={handleAvatarChange} accept="image/*" className="hidden" />
-                        {user.role !== Role.STUDENT && <button type="button" onClick={() => fileInputRef.current?.click()} className="absolute bottom-0 right-0 bg-white dark:bg-gray-700 p-2 rounded-full shadow-md hover:bg-gray-100 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500" aria-label="Change profile picture"><PencilIcon className="h-4 w-4 text-gray-600 dark:text-gray-300" /></button>}
+                        <img className="h-24 w-24 rounded-full object-cover" src={avatarSrc} alt="Profile" />
+                        <input type="file" ref={fileInputRef} onChange={handleAvatarChange} accept="image/png, image/jpeg, image/gif" className="hidden" />
+                        {user.role !== Role.STUDENT && <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="absolute bottom-0 right-0 bg-white dark:bg-gray-700 p-2 rounded-full shadow-md hover:bg-gray-100 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50" aria-label="Change profile picture"><PencilIcon className="h-4 w-4 text-gray-600 dark:text-gray-300" /></button>}
+                        {isUploading && <div className="absolute inset-0 bg-black bg-opacity-50 rounded-full flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div></div>}
                     </div>
                     <div>
                         <h1 className={`text-3xl font-bold ${user.role === Role.STUDENT ? 'text-slate-800 dark:text-white' : 'text-gray-800 dark:text-white'}`}>{user.firstName} {user.lastName}</h1>

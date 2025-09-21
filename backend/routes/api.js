@@ -3,6 +3,8 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import db from '../db.js';
 import { protect } from '../middleware/auth.js';
+import multer from 'multer';
+import path from 'path';
 
 const router = express.Router();
 
@@ -10,40 +12,93 @@ const router = express.Router();
 let settingsCache = null;
 let cacheTimestamp = 0;
 
+// --- Multer Configuration for File Uploads ---
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    // Save to the volume in production, or a local folder in development
+    const uploadDir = process.env.NODE_ENV === 'production' ? '/storage/uploads' : 'uploads';
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({ 
+    storage: storage,
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = /jpeg|jpg|png|gif/;
+        const mimetype = allowedTypes.test(file.mimetype);
+        const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+        if (mimetype && extname) {
+            return cb(null, true);
+        }
+        cb(new Error('Error: File upload only supports the following filetypes - ' + allowedTypes));
+    }
+});
+
 // --- DYNAMIC DATA LOADER ---
 // This function acts like a simple data access layer.
 const getData = async (table) => db.query(`SELECT * FROM ${table}`);
+
+// In a real app, you'd handle inserts, updates, deletes individually.
+// For this project, this simplified "bulk save" is for mock API parity and logging.
 const saveData = async (table, data) => {
-    // This is a placeholder for a more robust save.
-    // In a real app, you'd handle inserts, updates, deletes individually.
-    // For this project, we'll just log that a save was requested.
-    console.log(`A save operation was requested for table: ${table}`);
-    return { message: `${table} data save handled.` };
+    console.log(`A save operation was requested for table: ${table}. Data not persisted by this endpoint. Seeding is the source of truth.`);
+    return { message: `${table} data save operation handled.` };
 };
 
 // --- AUTH ROUTE ---
 router.post('/auth/login', async (req, res) => {
     const { emailOrUsername, password } = req.body;
+    if (!emailOrUsername || !password) {
+        return res.status(400).json({ message: 'Email/Username and password are required.' });
+    }
     try {
         const result = await db.query('SELECT * FROM users WHERE email = $1 OR username = $1', [emailOrUsername]);
         const user = result.rows[0];
 
         if (user && await bcrypt.compare(password, user.password)) {
-            // In a real app, you'd update lastLogin, etc.
+            // In a real app, you'd update lastLogin here.
+            
+            const userPayload = {
+                id: user.id,
+                role: user.role,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                avatar: user.avatar,
+                email: user.email,
+                childrenIds: user.childrenIds,
+            };
+
             const token = jwt.sign(
-                { id: user.id, role: user.role, firstName: user.firstName, lastName: user.lastName, avatar: user.avatar },
+                userPayload,
                 process.env.JWT_SECRET || 'your_default_jwt_secret',
                 { expiresIn: '1d' }
             );
+            
+            // Return the full user object needed by the frontend, but without the password hash.
             const { password: _, ...userWithoutPassword } = user;
             res.json({ token, user: userWithoutPassword });
         } else {
             res.status(401).json({ message: 'Invalid credentials' });
         }
     } catch (e) {
-        console.error(e);
+        console.error('Login Error:', e);
         res.status(500).json({ message: 'Server error during login' });
     }
+});
+
+// --- FILE UPLOAD ROUTE ---
+router.post('/upload', protect, upload.single('file'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ message: 'No file uploaded.' });
+  }
+  // Return the web-accessible path to the file
+  const filePath = `/uploads/${req.file.filename}`;
+  res.json({ filePath });
 });
 
 
@@ -71,10 +126,9 @@ resources.forEach(resource => {
 resources.forEach(resource => {
     router.post(`/${resource}`, protect, async (req, res) => {
         const data = req.body;
-        // This is a simplified "save" that just replaces the data for the mock API functionality.
+        // This is a simplified "save" that just acknowledges the request for mock API functionality.
         // A real-world POST would handle individual record creation/updates.
         try {
-            // For now, we simulate saving by just acknowledging. The seed script is the source of truth.
             const result = await saveData(resource, data);
             res.json(result);
         } catch (err) {
@@ -85,6 +139,7 @@ resources.forEach(resource => {
 });
 
 // --- Settings specific routes ---
+// Settings are public for login page styling, so no `protect` middleware
 router.get('/settings', async (req, res) => {
   // Use a simple time-based cache to avoid hitting the DB on every single render
   const now = Date.now();
@@ -144,7 +199,8 @@ router.post('/curriculum_progress', protect, async (req, res) => {
     const client = await db.pool.connect();
     try {
         await client.query('BEGIN');
-        await client.query('TRUNCATE TABLE curriculum_progress'); // Simple replace for mock functionality
+        // Simple replace for mock functionality. A real app would use UPSERT.
+        await client.query('TRUNCATE TABLE curriculum_progress'); 
         for (const enrollmentId in progressMap) {
             const progress = progressMap[enrollmentId];
             await client.query(

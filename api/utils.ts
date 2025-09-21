@@ -1,3 +1,5 @@
+import { API_BASE_URL } from '../config';
+
 export const getAuthHeaders = () => {
     const token = sessionStorage.getItem('authToken');
     return {
@@ -14,4 +16,21 @@ export const handleResponse = async <T>(response: Response): Promise<T> => {
     // Handle cases with no content
     const text = await response.text();
     return text ? JSON.parse(text) : null;
+};
+
+export const uploadFile = async (file: File): Promise<{ filePath: string }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const token = sessionStorage.getItem('authToken');
+    const response = await fetch(`${API_BASE_URL}/upload`, {
+      method: 'POST',
+      headers: {
+        // Omitting 'Content-Type' lets the browser set it with the correct boundary for FormData
+        'Authorization': `Bearer ${token}`,
+      },
+      body: formData,
+    });
+    
+    return handleResponse<{ filePath: string }>(response);
 };

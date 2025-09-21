@@ -8,6 +8,7 @@ import { getAssets } from '../../api/assetApi';
 import { logAction } from '../../api/auditApi';
 import ConfirmationModal from '../../components/ConfirmationModal';
 import { useAuth } from '../../contexts/AuthContext';
+import { uploadFile } from '../../api/utils';
 
 const countryCodes = [
     { name: 'USA', code: '+1' }, { name: 'UK', code: '+44' }, { name: 'Australia', code: '+61' },
@@ -63,6 +64,7 @@ const SettingsPage: React.FC = () => {
     const [editingTab, setEditingTab] = useState<string | null>(null);
     const { addToast } = useToast();
     const logoInputRef = useRef<HTMLInputElement>(null);
+    const [isUploading, setIsUploading] = useState(false);
     
     const [allPrograms, setAllPrograms] = useState<Program[]>([]);
     const [allAssets, setAllAssets] = useState<Asset[]>([]);
@@ -138,17 +140,23 @@ const SettingsPage: React.FC = () => {
         });
     };
     
-    const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleLogoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file && file.type.startsWith('image/')) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                const dataUrl = reader.result as string;
-                handleSettingsChange('companyLogoUrl', dataUrl);
-            };
-            reader.readAsDataURL(file);
-        } else if (file) {
-            addToast('Please select a valid image file.', 'error');
+        if (file) {
+            if (file.size > 5 * 1024 * 1024) { // 5MB limit
+                addToast('File size should not exceed 5MB.', 'error');
+                return;
+            }
+            setIsUploading(true);
+            try {
+                const { filePath } = await uploadFile(file);
+                handleSettingsChange('companyLogoUrl', filePath);
+                addToast('Logo uploaded. Click Save to confirm.', 'info');
+            } catch (error: any) {
+                addToast(error.message || 'Failed to upload logo.', 'error');
+            } finally {
+                setIsUploading(false);
+            }
         }
     };
     
@@ -358,9 +366,8 @@ const SettingsPage: React.FC = () => {
                             <div className="mt-1 flex items-center space-x-4">
                                 {draftSettings.companyLogoUrl ? (<img src={draftSettings.companyLogoUrl} alt="Company Logo" className="h-12 w-auto bg-gray-100 dark:bg-gray-700 p-1 rounded" />) : (<div className="h-12 w-12 bg-gray-100 dark:bg-gray-700 rounded flex items-center justify-center text-gray-400">No Logo</div>)}
                                 <input type="file" ref={logoInputRef} onChange={handleLogoFileChange} accept="image/*" className="hidden"/>
-                                <button type="button" onClick={() => logoInputRef.current?.click()} disabled={editingTab !== 'general'} className="flex items-center bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-3 py-1.5 rounded-md text-sm font-semibold border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50">
-                                    <ArrowUpTrayIcon className="h-4 w-4 mr-2" />
-                                    Change Logo
+                                <button type="button" onClick={() => logoInputRef.current?.click()} disabled={editingTab !== 'general' || isUploading} className="flex items-center bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-3 py-1.5 rounded-md text-sm font-semibold border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50">
+                                    {isUploading ? 'Uploading...' : <><ArrowUpTrayIcon className="h-4 w-4 mr-2" /> Change Logo</>}
                                 </button>
                             </div>
                         </div>

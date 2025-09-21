@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { User, Role, UserStatus } from '../types';
-import { XIcon } from './icons/Icons';
+import { XIcon, ArrowUpTrayIcon } from './icons/Icons';
 import { getUsers } from '../api/userApi';
 import { logAction } from '../api/auditApi';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
+import { uploadFile } from '../api/utils';
 
 interface UserFormModalProps {
   isOpen: boolean;
@@ -53,6 +54,7 @@ const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, onSave, 
     username: '',
     password: '',
     confirmPassword: '',
+    avatar: '',
     // Student fields
     grade: '',
     age: '',
@@ -66,6 +68,8 @@ const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, onSave, 
   const { addToast } = useToast();
   const { user: currentUser } = useAuth();
   const firstInputRef = useRef<HTMLInputElement>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const parents = useMemo(() => allUsers.filter(u => u.role === Role.PARENT), [allUsers]);
@@ -101,6 +105,7 @@ const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, onSave, 
         username: user.username || '',
         password: '',
         confirmPassword: '',
+        avatar: user.avatar || '',
         grade: user.grade || '',
         age: user.age?.toString() || '',
         parentId: user.parentId || '',
@@ -120,6 +125,7 @@ const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, onSave, 
         username: '',
         password: '',
         confirmPassword: '',
+        avatar: '',
         grade: '',
         age: '',
         parentId: '',
@@ -194,6 +200,25 @@ const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, onSave, 
     
     setFormData(prev => ({ ...prev, [name]: val }));
   };
+  
+    const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            if (file.size > 5 * 1024 * 1024) {
+                addToast('File size should not exceed 5MB.', 'error');
+                return;
+            }
+            setIsUploading(true);
+            try {
+                const { filePath } = await uploadFile(file);
+                setFormData(prev => ({ ...prev, avatar: filePath }));
+            } catch (error: any) {
+                addToast(error.message || 'Failed to upload avatar.', 'error');
+            } finally {
+                setIsUploading(false);
+            }
+        }
+    };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -214,7 +239,7 @@ const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, onSave, 
       role: formData.role,
       status: formData.status,
       timezone: formData.timezone,
-      avatar: user?.avatar || `https://picsum.photos/seed/${formData.firstName}/100/100`,
+      avatar: formData.avatar || `https://picsum.photos/seed/${formData.firstName}/100/100`,
       lastLogin: user?.lastLogin || new Date().toLocaleString(),
       dateAdded: user?.dateAdded || new Date().toISOString().split('T')[0],
       grade: formData.role === Role.STUDENT ? formData.grade : undefined,
@@ -243,6 +268,18 @@ const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, onSave, 
         </div>
         <form onSubmit={handleSubmit} className="flex-grow overflow-y-auto">
           <div className="p-6 space-y-4">
+             {!user && (
+                  <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Profile Picture</label>
+                      <div className="mt-1 flex items-center space-x-4">
+                          <img src={formData.avatar || `https://picsum.photos/seed/${formData.firstName || 'new'}/100/100`} alt="Avatar preview" className="h-16 w-16 rounded-full object-cover bg-gray-100" />
+                          <input type="file" ref={avatarInputRef} onChange={handleAvatarChange} accept="image/*" className="hidden" />
+                          <button type="button" onClick={() => avatarInputRef.current?.click()} disabled={isUploading} className="flex items-center bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-3 py-1.5 rounded-md text-sm font-semibold border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50">
+                              {isUploading ? 'Uploading...' : <><ArrowUpTrayIcon className="h-4 w-4 mr-2" />Upload Image</>}
+                          </button>
+                      </div>
+                  </div>
+              )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div><label htmlFor="firstName">First Name *</label><input ref={firstInputRef} type="text" name="firstName" id="firstName" value={formData.firstName} onChange={handleChange} required className={`${commonInputClasses} ${errors.firstName ? 'border-red-500' : ''}`} />{errors.firstName && <p className="text-xs text-red-500 mt-1">{errors.firstName}</p>}</div>
                 <div><label htmlFor="lastName">Last Name *</label><input type="text" name="lastName" id="lastName" value={formData.lastName} onChange={handleChange} required className={`${commonInputClasses} ${errors.lastName ? 'border-red-500' : ''}`} />{errors.lastName && <p className="text-xs text-red-500 mt-1">{errors.lastName}</p>}</div>
