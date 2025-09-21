@@ -4,6 +4,7 @@ import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { initializeDatabase } from './db-init.js';
 
 import apiRoutes from './routes/api.js';
 
@@ -38,6 +39,12 @@ app.get('/', (req, res) => {
   res.send('BrainLeaf Backend is running!');
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+// Initialize DB and then start server
+initializeDatabase().then(() => {
+    app.listen(PORT, () => {
+        console.log(`Server is running on port ${PORT}`);
+    });
+}).catch(error => {
+    console.error("Failed to initialize database or start server:", error);
+    process.exit(1);
 });
